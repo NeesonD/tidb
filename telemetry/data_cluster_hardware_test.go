@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -20,8 +21,6 @@ import (
 )
 
 func TestNormalizeDiskName(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		diskName string
 		expected string
@@ -38,8 +37,6 @@ func TestNormalizeDiskName(t *testing.T) {
 }
 
 func TestIsNormalizedDiskNameAllowed(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		diskName string
 	}{
@@ -65,8 +62,6 @@ func TestIsNormalizedDiskNameAllowed(t *testing.T) {
 }
 
 func TestIsNormalizedDiskNameNotAllowed(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		diskName string
 	}{
@@ -83,8 +78,6 @@ func TestIsNormalizedDiskNameNotAllowed(t *testing.T) {
 }
 
 func TestNormalizeFieldName(t *testing.T) {
-	t.Parallel()
-
 	tests := []struct {
 		fileName string
 		expected string

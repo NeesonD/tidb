@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -25,6 +26,7 @@ import (
 	"github.com/pingcap/errors"
 	"github.com/pingcap/tidb/util/hack"
 	"github.com/pingcap/tidb/util/stringutil"
+	"golang.org/x/exp/slices"
 )
 
 // Type returns type of BinaryJSON as string.
@@ -206,13 +208,15 @@ func quoteString(s string) string {
 }
 
 // Extract receives several path expressions as arguments, matches them in bj, and returns:
-//  ret: target JSON matched any path expressions. maybe autowrapped as an array.
-//  found: true if any path expressions matched.
+//
+//	ret: target JSON matched any path expressions. maybe autowrapped as an array.
+//	found: true if any path expressions matched.
 func (bj BinaryJSON) Extract(pathExprList []PathExpression) (ret BinaryJSON, found bool) {
 	buf := make([]BinaryJSON, 0, 1)
 	for _, pathExpr := range pathExprList {
-		buf = bj.extractTo(buf, pathExpr)
+		buf = bj.extractTo(buf, pathExpr, make(map[*byte]struct{}), false)
 	}
+
 	if len(buf) == 0 {
 		found = false
 	} else if len(pathExprList) == 1 && len(buf) == 1 {
@@ -220,6 +224,10 @@ func (bj BinaryJSON) Extract(pathExprList []PathExpression) (ret BinaryJSON, fou
 		// even if len(pathExprList) equals to 1.
 		found = true
 		ret = buf[0]
+		// Fix https://github.com/pingcap/tidb/issues/30352
+		if pathExprList[0].ContainsAnyAsterisk() {
+			ret = buildBinaryArray(buf)
+		}
 	} else {
 		found = true
 		ret = buildBinaryArray(buf)
@@ -227,53 +235,68 @@ func (bj BinaryJSON) Extract(pathExprList []PathExpression) (ret BinaryJSON, fou
 	return
 }
 
-func (bj BinaryJSON) extractTo(buf []BinaryJSON, pathExpr PathExpression) []BinaryJSON {
+func (bj BinaryJSON) extractOne(pathExpr PathExpression) []BinaryJSON {
+	result := make([]BinaryJSON, 0, 1)
+	return bj.extractTo(result, pathExpr, nil, true)
+}
+
+func (bj BinaryJSON) extractTo(buf []BinaryJSON, pathExpr PathExpression, dup map[*byte]struct{}, one bool) []BinaryJSON {
 	if len(pathExpr.legs) == 0 {
+		if dup != nil {
+			if _, exists := dup[&bj.Value[0]]; exists {
+				return buf
+			}
+			dup[&bj.Value[0]] = struct{}{}
+		}
 		return append(buf, bj)
 	}
 	currentLeg, subPathExpr := pathExpr.popOneLeg()
 	if currentLeg.typ == pathLegIndex {
 		if bj.TypeCode != TypeCodeArray {
 			if currentLeg.arrayIndex <= 0 && currentLeg.arrayIndex != arrayIndexAsterisk {
-				buf = bj.extractTo(buf, subPathExpr)
+				buf = bj.extractTo(buf, subPathExpr, dup, one)
 			}
 			return buf
 		}
 		elemCount := bj.GetElemCount()
 		if currentLeg.arrayIndex == arrayIndexAsterisk {
-			for i := 0; i < elemCount; i++ {
-				buf = bj.arrayGetElem(i).extractTo(buf, subPathExpr)
+			for i := 0; i < elemCount && !finished(buf, one); i++ {
+				buf = bj.arrayGetElem(i).extractTo(buf, subPathExpr, dup, one)
 			}
 		} else if currentLeg.arrayIndex < elemCount {
-			buf = bj.arrayGetElem(currentLeg.arrayIndex).extractTo(buf, subPathExpr)
+			buf = bj.arrayGetElem(currentLeg.arrayIndex).extractTo(buf, subPathExpr, dup, one)
 		}
 	} else if currentLeg.typ == pathLegKey && bj.TypeCode == TypeCodeObject {
 		elemCount := bj.GetElemCount()
 		if currentLeg.dotKey == "*" {
-			for i := 0; i < elemCount; i++ {
-				buf = bj.objectGetVal(i).extractTo(buf, subPathExpr)
+			for i := 0; i < elemCount && !finished(buf, one); i++ {
+				buf = bj.objectGetVal(i).extractTo(buf, subPathExpr, dup, one)
 			}
 		} else {
 			child, ok := bj.objectSearchKey(hack.Slice(currentLeg.dotKey))
 			if ok {
-				buf = child.extractTo(buf, subPathExpr)
+				buf = child.extractTo(buf, subPathExpr, dup, one)
 			}
 		}
 	} else if currentLeg.typ == pathLegDoubleAsterisk {
-		buf = bj.extractTo(buf, subPathExpr)
+		buf = bj.extractTo(buf, subPathExpr, dup, one)
 		if bj.TypeCode == TypeCodeArray {
 			elemCount := bj.GetElemCount()
-			for i := 0; i < elemCount; i++ {
-				buf = bj.arrayGetElem(i).extractTo(buf, pathExpr)
+			for i := 0; i < elemCount && !finished(buf, one); i++ {
+				buf = bj.arrayGetElem(i).extractTo(buf, pathExpr, dup, one)
 			}
 		} else if bj.TypeCode == TypeCodeObject {
 			elemCount := bj.GetElemCount()
-			for i := 0; i < elemCount; i++ {
-				buf = bj.objectGetVal(i).extractTo(buf, pathExpr)
+			for i := 0; i < elemCount && !finished(buf, one); i++ {
+				buf = bj.objectGetVal(i).extractTo(buf, pathExpr, dup, one)
 			}
 		}
 	}
 	return buf
+}
+
+func finished(buf []BinaryJSON, one bool) bool {
+	return one && len(buf) > 0
 }
 
 func (bj BinaryJSON) objectSearchKey(key []byte) (BinaryJSON, bool) {
@@ -441,8 +464,7 @@ type binaryModifier struct {
 }
 
 func (bm *binaryModifier) set(path PathExpression, newBj BinaryJSON) BinaryJSON {
-	result := make([]BinaryJSON, 0, 1)
-	result = bm.bj.extractTo(result, path)
+	result := bm.bj.extractOne(path)
 	if len(result) > 0 {
 		bm.modifyPtr = &result[0].Value[0]
 		bm.modifyValue = newBj
@@ -456,8 +478,7 @@ func (bm *binaryModifier) set(path PathExpression, newBj BinaryJSON) BinaryJSON 
 }
 
 func (bm *binaryModifier) replace(path PathExpression, newBj BinaryJSON) BinaryJSON {
-	result := make([]BinaryJSON, 0, 1)
-	result = bm.bj.extractTo(result, path)
+	result := bm.bj.extractOne(path)
 	if len(result) == 0 {
 		return bm.bj
 	}
@@ -467,8 +488,7 @@ func (bm *binaryModifier) replace(path PathExpression, newBj BinaryJSON) BinaryJ
 }
 
 func (bm *binaryModifier) insert(path PathExpression, newBj BinaryJSON) BinaryJSON {
-	result := make([]BinaryJSON, 0, 1)
-	result = bm.bj.extractTo(result, path)
+	result := bm.bj.extractOne(path)
 	if len(result) > 0 {
 		return bm.bj
 	}
@@ -482,8 +502,7 @@ func (bm *binaryModifier) insert(path PathExpression, newBj BinaryJSON) BinaryJS
 // doInsert inserts the newBj to its parent, and builds the new parent.
 func (bm *binaryModifier) doInsert(path PathExpression, newBj BinaryJSON) {
 	parentPath, lastLeg := path.popOneLastLeg()
-	result := make([]BinaryJSON, 0, 1)
-	result = bm.bj.extractTo(result, parentPath)
+	result := bm.bj.extractOne(parentPath)
 	if len(result) == 0 {
 		return
 	}
@@ -530,8 +549,7 @@ func (bm *binaryModifier) doInsert(path PathExpression, newBj BinaryJSON) {
 }
 
 func (bm *binaryModifier) remove(path PathExpression) BinaryJSON {
-	result := make([]BinaryJSON, 0, 1)
-	result = bm.bj.extractTo(result, path)
+	result := bm.bj.extractOne(path)
 	if len(result) == 0 {
 		return bm.bj
 	}
@@ -544,8 +562,7 @@ func (bm *binaryModifier) remove(path PathExpression) BinaryJSON {
 
 func (bm *binaryModifier) doRemove(path PathExpression) {
 	parentPath, lastLeg := path.popOneLastLeg()
-	result := make([]BinaryJSON, 0, 1)
-	result = bm.bj.extractTo(result, parentPath)
+	result := bm.bj.extractOne(parentPath)
 	if len(result) == 0 {
 		return
 	}
@@ -643,7 +660,7 @@ func (bm *binaryModifier) rebuildTo(buf []byte) ([]byte, TypeCode) {
 // floatEpsilon is the acceptable error quantity when comparing two float numbers.
 const floatEpsilon = 1.e-8
 
-// compareFloat64 returns an integer comparing the float64 x to y,
+// compareFloat64PrecisionLoss returns an integer comparing the float64 x to y,
 // allowing precision loss.
 func compareFloat64PrecisionLoss(x, y float64) int {
 	if x-y < floatEpsilon && y-x < floatEpsilon {
@@ -853,8 +870,8 @@ func mergePatchBinary(target, patch *BinaryJSON) (result *BinaryJSON, err error)
 		for key := range keyValMap {
 			keys = append(keys, []byte(key))
 		}
-		sort.Slice(keys, func(i, j int) bool {
-			return bytes.Compare(keys[i], keys[j]) < 0
+		slices.SortFunc(keys, func(i, j []byte) bool {
+			return bytes.Compare(i, j) < 0
 		})
 		length = len(keys)
 		values := make([]BinaryJSON, 0, len(keys))
@@ -936,8 +953,8 @@ func mergeBinaryObject(objects []BinaryJSON) BinaryJSON {
 			}
 		}
 	}
-	sort.Slice(keys, func(i, j int) bool {
-		return bytes.Compare(keys[i], keys[j]) < 0
+	slices.SortFunc(keys, func(i, j []byte) bool {
+		return bytes.Compare(i, j) < 0
 	})
 	values := make([]BinaryJSON, len(keys))
 	for i, key := range keys {
@@ -987,8 +1004,8 @@ func ContainsBinary(obj, target BinaryJSON) bool {
 	switch obj.TypeCode {
 	case TypeCodeObject:
 		if target.TypeCode == TypeCodeObject {
-			len := target.GetElemCount()
-			for i := 0; i < len; i++ {
+			elemCount := target.GetElemCount()
+			for i := 0; i < elemCount; i++ {
 				key := target.objectGetKey(i)
 				val := target.objectGetVal(i)
 				if exp, exists := obj.objectSearchKey(key); !exists || !ContainsBinary(exp, val) {
@@ -1000,16 +1017,16 @@ func ContainsBinary(obj, target BinaryJSON) bool {
 		return false
 	case TypeCodeArray:
 		if target.TypeCode == TypeCodeArray {
-			len := target.GetElemCount()
-			for i := 0; i < len; i++ {
+			elemCount := target.GetElemCount()
+			for i := 0; i < elemCount; i++ {
 				if !ContainsBinary(obj, target.arrayGetElem(i)) {
 					return false
 				}
 			}
 			return true
 		}
-		len := obj.GetElemCount()
-		for i := 0; i < len; i++ {
+		elemCount := obj.GetElemCount()
+		for i := 0; i < elemCount; i++ {
 			if ContainsBinary(obj.arrayGetElem(i), target) {
 				return true
 			}
@@ -1033,9 +1050,9 @@ func ContainsBinary(obj, target BinaryJSON) bool {
 func (bj BinaryJSON) GetElemDepth() int {
 	switch bj.TypeCode {
 	case TypeCodeObject:
-		len := bj.GetElemCount()
+		elemCount := bj.GetElemCount()
 		maxDepth := 0
-		for i := 0; i < len; i++ {
+		for i := 0; i < elemCount; i++ {
 			obj := bj.objectGetVal(i)
 			depth := obj.GetElemDepth()
 			if depth > maxDepth {
@@ -1044,9 +1061,9 @@ func (bj BinaryJSON) GetElemDepth() int {
 		}
 		return maxDepth + 1
 	case TypeCodeArray:
-		len := bj.GetElemCount()
+		elemCount := bj.GetElemCount()
 		maxDepth := 0
-		for i := 0; i < len; i++ {
+		for i := 0; i < elemCount; i++ {
 			obj := bj.arrayGetElem(i)
 			depth := obj.GetElemDepth()
 			if depth > maxDepth {
@@ -1097,14 +1114,15 @@ func (bj BinaryJSON) Search(containType string, search string, escape byte, path
 	default:
 		return CreateBinary(result), false, nil
 	}
-
 }
 
-// extractCallbackFn: the type of CALLBACK function for extractToCallback
+// extractCallbackFn the type of CALLBACK function for extractToCallback
 type extractCallbackFn func(fullpath PathExpression, bj BinaryJSON) (stop bool, err error)
 
-// extractToCallback: callback alternative of extractTo
-//     would be more effective when walk through the whole JSON is unnecessary
+// extractToCallback callback alternative of extractTo
+//
+//	would be more effective when walk through the whole JSON is unnecessary
+//
 // NOTICE: path [0] & [*] for JSON object other than array is INVALID, which is different from extractTo.
 func (bj BinaryJSON) extractToCallback(pathExpr PathExpression, callbackFn extractCallbackFn, fullpath PathExpression) (stop bool, err error) {
 	if len(pathExpr.legs) == 0 {

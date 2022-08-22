@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -16,9 +17,9 @@ package expression
 import (
 	"bytes"
 	"crypto/aes"
-	"crypto/md5"
+	"crypto/md5" // #nosec G501
 	"crypto/rand"
-	"crypto/sha1"
+	"crypto/sha1" // #nosec G505
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/binary"
@@ -28,13 +29,13 @@ import (
 	"sync"
 
 	"github.com/pingcap/errors"
-	"github.com/pingcap/parser/auth"
+	"github.com/pingcap/tidb/parser/auth"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
 	"github.com/pingcap/tidb/util/encrypt"
-	"github.com/pingcap/tidb/util/hack"
 )
 
+//revive:disable:defer
 func (b *builtinAesDecryptSig) vectorized() bool {
 	return true
 }
@@ -421,14 +422,15 @@ func (b *builtinMD5Sig) vecEvalString(input *chunk.Chunk, result *chunk.Column) 
 		return err
 	}
 	result.ReserveString(n)
-	digest := md5.New()
+
+	digest := md5.New() // #nosec G401
 	for i := 0; i < n; i++ {
 		if buf.IsNull(i) {
 			result.AppendNull()
 			continue
 		}
-		cryptByte := buf.GetBytes(i)
-		_, err := digest.Write(cryptByte)
+		cryptBytes := buf.GetBytes(i)
+		_, err = digest.Write(cryptBytes)
 		if err != nil {
 			return err
 		}
@@ -561,14 +563,15 @@ func (b *builtinCompressSig) vecEvalString(input *chunk.Chunk, result *chunk.Col
 			continue
 		}
 
-		str := buf.GetString(i)
+		strBytes := buf.GetBytes(i)
 
 		// According to doc: Empty strings are stored as empty strings.
-		if len(str) == 0 {
+		if len(strBytes) == 0 {
 			result.AppendString("")
+			continue
 		}
 
-		compressed, err := deflate(hack.Slice(str))
+		compressed, err := deflate(strBytes)
 		if err != nil {
 			result.AppendNull()
 			continue
@@ -583,10 +586,11 @@ func (b *builtinCompressSig) vecEvalString(input *chunk.Chunk, result *chunk.Col
 		}
 
 		buffer := allocByteSlice(resultLength)
+		//nolint: revive
 		defer deallocateByteSlice(buffer)
 		buffer = buffer[:resultLength]
 
-		binary.LittleEndian.PutUint32(buffer, uint32(len(str)))
+		binary.LittleEndian.PutUint32(buffer, uint32(len(strBytes)))
 		copy(buffer[4:], compressed)
 
 		if shouldAppendSuffix {
@@ -685,16 +689,18 @@ func (b *builtinPasswordSig) vecEvalString(input *chunk.Chunk, result *chunk.Col
 			result.AppendString("")
 			continue
 		}
-		pass := buf.GetString(i)
-		if len(pass) == 0 {
+
+		passBytes := buf.GetBytes(i)
+		if len(passBytes) == 0 {
 			result.AppendString("")
 			continue
 		}
+
 		// We should append a warning here because function "PASSWORD" is deprecated since MySQL 5.7.6.
 		// See https://dev.mysql.com/doc/refman/5.7/en/encryption-functions.html#function_password
 		b.ctx.GetSessionVars().StmtCtx.AppendWarning(errDeprecatedSyntaxNoReplacement.GenWithStackByArgs("PASSWORD"))
 
-		result.AppendString(auth.EncodePassword(pass))
+		result.AppendString(auth.EncodePasswordBytes(passBytes))
 	}
 	return nil
 }
@@ -714,7 +720,7 @@ func (b *builtinSHA1Sig) vecEvalString(input *chunk.Chunk, result *chunk.Column)
 		return err
 	}
 	result.ReserveString(n)
-	hasher := sha1.New()
+	hasher := sha1.New() // #nosec G401
 	for i := 0; i < n; i++ {
 		if buf.IsNull(i) {
 			result.AppendNull()

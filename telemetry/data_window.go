@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -158,15 +159,14 @@ func getSQLSum(sqlTypeData *sqlType) uint64 {
 	return result
 }
 
-func readSQLMetric(timepoint time.Time, SQLResult *sqlUsageData) error {
+func readSQLMetric(timepoint time.Time, sqlResult *sqlUsageData) error {
 	ctx := context.TODO()
 	promQL := "avg(tidb_executor_statement_total{}) by (type)"
 	result, err := querySQLMetric(ctx, timepoint, promQL)
 	if err != nil {
-		analysisSQLUsage(result, SQLResult)
-	} else {
-		analysisSQLUsage(result, SQLResult)
+		return err
 	}
+	analysisSQLUsage(result, sqlResult)
 	return nil
 }
 
@@ -204,17 +204,16 @@ func querySQLMetric(ctx context.Context, queryTime time.Time, promQL string) (re
 	return result, err
 }
 
-func analysisSQLUsage(promResult pmodel.Value, SQLResult *sqlUsageData) {
+func analysisSQLUsage(promResult pmodel.Value, sqlResult *sqlUsageData) {
 	if promResult == nil {
 		return
 	}
-	switch promResult.Type() {
-	case pmodel.ValVector:
+	if promResult.Type() == pmodel.ValVector {
 		matrix := promResult.(pmodel.Vector)
 		for _, m := range matrix {
 			v := m.Value
 			promLable := string(m.Metric[pmodel.LabelName("type")])
-			SQLResult.SQLType[promLable] = uint64(v)
+			sqlResult.SQLType[promLable] = uint64(v)
 		}
 	}
 }

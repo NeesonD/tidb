@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -76,6 +77,14 @@ func escapeBytesBackslash(buf []byte, v []byte) []byte {
 	}
 
 	return buf[:pos]
+}
+
+// EscapeString is used by session/bootstrap.go, which has some
+// dynamic query building cases not well handled by this package.
+// For normal usage, please use EscapeSQL instead!
+func EscapeString(s string) string {
+	buf := make([]byte, 0, len(s))
+	return string(escapeStringBackslash(buf, s))
 }
 
 // escapeStringBackslash will escape string into the buffer, with backslash.
@@ -224,7 +233,10 @@ func escapeSQL(sql string, args ...interface{}) ([]byte, error) {
 // 1. %?: automatic conversion by the type of arguments. E.g. []string -> ('s1','s2'..)
 // 2. %%: output %
 // 3. %n: for identifiers, for example ("use %n", db)
-// But it does not prevent you from doing EscapeSQL("select '%?", ";SQL injection!;") => "select '';SQL injection!;'".
+// But it does not prevent you from doing:
+/*
+	EscapeSQL("select '%?", ";SQL injection!;") => "select '';SQL injection!;'".
+*/
 // It is still your responsibility to write safe SQL.
 func EscapeSQL(sql string, args ...interface{}) (string, error) {
 	str, err := escapeSQL(sql, args...)

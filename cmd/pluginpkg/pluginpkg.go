@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -125,7 +126,7 @@ func main() {
 	}
 
 	genFileName := filepath.Join(pkgDir, filepath.Base(pkgDir)+".gen.go")
-	genFile, err := os.OpenFile(genFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0755)
+	genFile, err := os.OpenFile(genFileName, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0700) // #nosec G302
 	if err != nil {
 		log.Printf("generate code failure during prepare output file, %+v\n", err)
 		os.Exit(1)

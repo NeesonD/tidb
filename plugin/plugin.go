@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -25,7 +26,7 @@ import (
 	"github.com/pingcap/tidb/domain"
 	"github.com/pingcap/tidb/util"
 	"github.com/pingcap/tidb/util/logutil"
-	"go.etcd.io/etcd/clientv3"
+	clientv3 "go.etcd.io/etcd/client/v3"
 	"go.uber.org/zap"
 )
 
@@ -45,6 +46,7 @@ type plugins struct {
 }
 
 // clone deep copies plugins info.
+// nolint: unused
 func (p *plugins) clone() *plugins {
 	np := &plugins{
 		plugins:      make(map[Kind][]Plugin, len(p.plugins)),
@@ -437,7 +439,7 @@ func (p *Plugin) supportsFlush(pluginName string) error {
 		return errors.Errorf("plugin '%s' is not ready", pluginName)
 	}
 	if p.Manifest.flushWatcher == nil {
-		return errors.Errorf("plugin %s does not support flush", pluginName)
+		return errors.Errorf("plugin %s does not support flush, or PD is not available", pluginName)
 	}
 	return nil
 }

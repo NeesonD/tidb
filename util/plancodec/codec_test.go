@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -28,7 +29,6 @@ type encodeTaskTypeCase struct {
 }
 
 func TestEncodeTaskType(t *testing.T) {
-	t.Parallel()
 	cases := []encodeTaskTypeCase{
 		{true, kv.UnSpecified, "0", "root"},
 		{false, kv.TiKV, "1_0", "cop[tikv]"},
@@ -51,8 +51,6 @@ func TestEncodeTaskType(t *testing.T) {
 }
 
 func TestDecodeDiscardPlan(t *testing.T) {
-	t.Parallel()
-
 	plan, err := DecodePlan(PlanDiscardedEncoded)
 	require.NoError(t, err)
 	require.Equal(t, planDiscardedDecoded, plan)

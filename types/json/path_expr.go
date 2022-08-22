@@ -8,17 +8,22 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
 package json
 
 import (
+	"math"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/pingcap/errors"
+	"github.com/pingcap/tidb/util/hack"
+	"github.com/pingcap/tidb/util/kvcache"
 )
 
 /*
@@ -45,9 +50,9 @@ import (
 		select json_extract('{"a": "b", "c": [1, "2"]}', '$.*') -> ["b", [1, "2"]]
 */
 
-// [a-zA-Z_][a-zA-Z0-9_]* matches any identifier;
+// ([\$]*[a-zA-Z_][a-zA-Z0-9_]*)+ matches any identifier, may start with $ and appear multiple times;
 // "[^"\\]*(\\.[^"\\]*)*" matches any string literal which can carry escaped quotes;
-var jsonPathExprLegRe = regexp.MustCompile(`(\.\s*([a-zA-Z_][a-zA-Z0-9_]*|\*|"[^"\\]*(\\.[^"\\]*)*")|(\[\s*([0-9]+|\*)\s*\])|\*\*)`)
+var jsonPathExprLegRe = regexp.MustCompile(`(\.\s*(([\$]*[a-zA-Z_][a-zA-Z0-9_]*)+|\*|"[^"\\]*(\\.[^"\\]*)*")|(\[\s*([0-9]+|\*)\s*\])|\*\*)`)
 
 type pathLegType byte
 
@@ -89,6 +94,20 @@ func (pef pathExpressionFlag) containsAnyAsterisk() bool {
 type PathExpression struct {
 	legs  []pathLeg
 	flags pathExpressionFlag
+}
+
+var peCache PathExpressionCache
+
+type pathExpressionKey string
+
+func (key pathExpressionKey) Hash() []byte {
+	return hack.Slice(string(key))
+}
+
+// PathExpressionCache is a cache for PathExpression.
+type PathExpressionCache struct {
+	mu    sync.Mutex
+	cache *kvcache.SimpleLRUCache
 }
 
 // popOneLeg returns a pathLeg, and a child PathExpression without that leg.
@@ -149,6 +168,22 @@ func (pe PathExpression) ContainsAnyAsterisk() bool {
 // ParseJSONPathExpr parses a JSON path expression. Returns a PathExpression
 // object which can be used in JSON_EXTRACT, JSON_SET and so on.
 func ParseJSONPathExpr(pathExpr string) (pe PathExpression, err error) {
+	peCache.mu.Lock()
+	val, ok := peCache.cache.Get(pathExpressionKey(pathExpr))
+	if ok {
+		peCache.mu.Unlock()
+		return val.(PathExpression), nil
+	}
+	peCache.mu.Unlock()
+
+	defer func() {
+		if err == nil {
+			peCache.mu.Lock()
+			peCache.cache.Put(pathExpressionKey(pathExpr), kvcache.Value(pe))
+			peCache.mu.Unlock()
+		}
+	}()
+
 	// Find the position of first '$'. If any no-blank characters in
 	// pathExpr[0: dollarIndex), return an ErrInvalidJSONPath error.
 	dollarIndex := strings.Index(pathExpr, "$")
@@ -259,4 +294,8 @@ func (pe PathExpression) String() string {
 		}
 	}
 	return s.String()
+}
+
+func init() {
+	peCache.cache = kvcache.NewSimpleLRUCache(1000, 0.1, math.MaxUint64)
 }

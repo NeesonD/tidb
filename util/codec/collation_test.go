@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -20,11 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pingcap/parser/mysql"
+	"github.com/pingcap/tidb/parser/mysql"
 	"github.com/pingcap/tidb/sessionctx/stmtctx"
 	"github.com/pingcap/tidb/types"
 	"github.com/pingcap/tidb/util/chunk"
-	"github.com/pingcap/tidb/util/collate"
 	"github.com/stretchr/testify/require"
 )
 
@@ -45,13 +45,11 @@ func prepareCollationData() (int, *chunk.Chunk, *chunk.Chunk) {
 }
 
 func TestHashGroupKeyCollation(t *testing.T) {
-	collate.SetNewCollationEnabledForTest(true)
-	defer collate.SetNewCollationEnabledForTest(false)
 	sc := &stmtctx.StatementContext{TimeZone: time.Local}
 	tp := types.NewFieldType(mysql.TypeString)
 	n, chk1, chk2 := prepareCollationData()
 
-	tp.Collate = "utf8_general_ci"
+	tp.SetCollate("utf8_general_ci")
 	buf1 := make([][]byte, n)
 	buf2 := make([][]byte, n)
 	buf1, err := HashGroupKey(sc, n, chk1.Column(0), buf1, tp)
@@ -67,7 +65,7 @@ func TestHashGroupKeyCollation(t *testing.T) {
 		}
 	}
 
-	tp.Collate = "utf8_unicode_ci"
+	tp.SetCollate("utf8_unicode_ci")
 	buf1 = make([][]byte, n)
 	buf2 = make([][]byte, n)
 	buf1, err = HashGroupKey(sc, n, chk1.Column(0), buf1, tp)
@@ -84,8 +82,6 @@ func TestHashGroupKeyCollation(t *testing.T) {
 }
 
 func TestHashChunkRowCollation(t *testing.T) {
-	collate.SetNewCollationEnabledForTest(true)
-	defer collate.SetNewCollationEnabledForTest(false)
 	sc := &stmtctx.StatementContext{TimeZone: time.Local}
 	tp := types.NewFieldType(mysql.TypeString)
 	tps := []*types.FieldType{tp}
@@ -93,7 +89,7 @@ func TestHashChunkRowCollation(t *testing.T) {
 	cols := []int{0}
 	buf := make([]byte, 1)
 
-	tp.Collate = "bin"
+	tp.SetCollate("binary")
 	for i := 0; i < n; i++ {
 		h1 := crc32.NewIEEE()
 		h2 := crc32.NewIEEE()
@@ -104,7 +100,7 @@ func TestHashChunkRowCollation(t *testing.T) {
 		h2.Reset()
 	}
 
-	tp.Collate = "utf8_general_ci"
+	tp.SetCollate("utf8_general_ci")
 	for i := 0; i < n; i++ {
 		h1 := crc32.NewIEEE()
 		h2 := crc32.NewIEEE()
@@ -115,7 +111,7 @@ func TestHashChunkRowCollation(t *testing.T) {
 		h2.Reset()
 	}
 
-	tp.Collate = "utf8_unicode_ci"
+	tp.SetCollate("utf8_unicode_ci")
 	for i := 0; i < n; i++ {
 		h1 := crc32.NewIEEE()
 		h2 := crc32.NewIEEE()
@@ -128,8 +124,6 @@ func TestHashChunkRowCollation(t *testing.T) {
 }
 
 func TestHashChunkColumnsCollation(t *testing.T) {
-	collate.SetNewCollationEnabledForTest(true)
-	defer collate.SetNewCollationEnabledForTest(false)
 	sc := &stmtctx.StatementContext{TimeZone: time.Local}
 	tp := types.NewFieldType(mysql.TypeString)
 	n, chk1, chk2 := prepareCollationData()
@@ -138,7 +132,7 @@ func TestHashChunkColumnsCollation(t *testing.T) {
 	h1s := []hash.Hash64{fnv.New64(), fnv.New64(), fnv.New64()}
 	h2s := []hash.Hash64{fnv.New64(), fnv.New64(), fnv.New64()}
 
-	tp.Collate = "bin"
+	tp.SetCollate("binary")
 	require.NoError(t, HashChunkColumns(sc, h1s, chk1, tp, 0, buf, hasNull))
 	require.NoError(t, HashChunkColumns(sc, h2s, chk2, tp, 0, buf, hasNull))
 
@@ -148,14 +142,14 @@ func TestHashChunkColumnsCollation(t *testing.T) {
 		h2s[i].Reset()
 	}
 
-	tp.Collate = "utf8_general_ci"
+	tp.SetCollate("utf8_general_ci")
 	require.NoError(t, HashChunkColumns(sc, h1s, chk1, tp, 0, buf, hasNull))
 	require.NoError(t, HashChunkColumns(sc, h2s, chk2, tp, 0, buf, hasNull))
 	for i := 0; i < n; i++ {
 		require.Equal(t, h2s[i].Sum64(), h1s[i].Sum64())
 	}
 
-	tp.Collate = "utf8_unicode_ci"
+	tp.SetCollate("utf8_unicode_ci")
 	require.NoError(t, HashChunkColumns(sc, h1s, chk1, tp, 0, buf, hasNull))
 	require.NoError(t, HashChunkColumns(sc, h2s, chk2, tp, 0, buf, hasNull))
 	for i := 0; i < n; i++ {

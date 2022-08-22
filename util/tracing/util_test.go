@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -17,7 +18,7 @@ import (
 	"context"
 	"testing"
 
-	basictracer "github.com/opentracing/basictracer-go"
+	"github.com/opentracing/basictracer-go"
 	"github.com/opentracing/opentracing-go"
 	"github.com/pingcap/tidb/util/tracing"
 	"github.com/stretchr/testify/require"
@@ -64,7 +65,6 @@ func TestChildSpanFromContext(t *testing.T) {
 	// verify second span's operation is not nil, this way we can ensure
 	// callback logic works.
 	require.NotNil(t, collectedSpan[1].Operation)
-
 }
 
 func TestFollowFrom(t *testing.T) {

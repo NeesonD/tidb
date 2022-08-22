@@ -8,6 +8,7 @@
 //
 // Unless required by applicable law or agreed to in writing, software
 // distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
@@ -20,7 +21,6 @@ import (
 )
 
 func TestUnquote(t *testing.T) {
-	t.Parallel()
 	table := []struct {
 		str    string
 		expect string
@@ -66,7 +66,6 @@ func TestUnquote(t *testing.T) {
 }
 
 func TestPatternMatch(t *testing.T) {
-	t.Parallel()
 	tbl := []struct {
 		pattern string
 		input   string
@@ -110,7 +109,6 @@ func TestPatternMatch(t *testing.T) {
 }
 
 func TestCompileLike2Regexp(t *testing.T) {
-	t.Parallel()
 	tbl := []struct {
 		pattern string
 		regexp  string
@@ -138,7 +136,6 @@ func TestCompileLike2Regexp(t *testing.T) {
 }
 
 func TestIsExactMatch(t *testing.T) {
-	t.Parallel()
 	tbl := []struct {
 		pattern    string
 		escape     byte
@@ -166,7 +163,6 @@ func TestIsExactMatch(t *testing.T) {
 }
 
 func TestBuildStringFromLabels(t *testing.T) {
-	t.Parallel()
 	tbl := []struct {
 		name     string
 		labels   map[string]string
